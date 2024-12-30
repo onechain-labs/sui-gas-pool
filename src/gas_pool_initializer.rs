@@ -104,7 +104,7 @@ impl CoinSplitEnv {
                     .await
                     .tap_err(|err| error!("Failed to sign transaction: {:?}", err))
             })
-            .unwrap();
+                .unwrap();
             let tx = Transaction::from_generic_sig_data(tx_data, vec![sig]);
             debug!(
                 "Sending transaction for execution. Tx digest: {:?}",
@@ -112,7 +112,7 @@ impl CoinSplitEnv {
             );
             let result = self.sui_client.execute_transaction(tx.clone(), 10).await;
             match result {
-                Ok(effects) => {
+                Ok((_, effects, _)) => {
                     assert!(
                         effects.status().is_ok(),
                         "Transaction failed. This should never happen. Tx: {:?}, effects: {:?}",
@@ -188,7 +188,7 @@ impl GasPoolInitializer {
                 coin_init_config.target_init_balance,
                 &signer,
             )
-            .await;
+                .await;
         }
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
         let _task_handle = tokio::spawn(Self::run(
@@ -227,7 +227,7 @@ impl GasPoolInitializer {
                 coin_init_config.target_init_balance,
                 &signer,
             )
-            .await;
+                .await;
         }
     }
 
@@ -286,7 +286,7 @@ impl GasPoolInitializer {
                 rgp,
             },
         )
-        .await;
+            .await;
         for chunk in result.chunks(5000) {
             storage.add_new_coins(chunk.to_vec()).await.unwrap();
         }
@@ -354,7 +354,7 @@ mod tests {
             },
             signer,
         )
-        .await;
+            .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 900);
     }
 
@@ -375,7 +375,7 @@ mod tests {
             },
             signer,
         )
-        .await;
+            .await;
         assert!(storage.get_available_coin_count().await.unwrap() > 800);
     }
 
@@ -396,7 +396,7 @@ mod tests {
             },
             signer,
         )
-        .await;
+            .await;
         assert!(storage.is_initialized().await.unwrap());
         let available_coin_count = storage.get_available_coin_count().await.unwrap();
         tracing::debug!("Available coin count: {}", available_coin_count);

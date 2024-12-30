@@ -62,7 +62,7 @@ mod tests {
             .is_err());
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
-        let effects = station
+        let (_, effects, _) = station
             .execute_transaction(reservation_id, tx_data, user_sig)
             .await
             .unwrap();
@@ -149,7 +149,7 @@ mod tests {
             .is_err());
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
-        let effects = station
+        let (_, effects, _) = station
             .execute_transaction(reservation_id, tx_data, user_sig)
             .await
             .unwrap();
@@ -184,7 +184,7 @@ mod tests {
             .is_err());
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins1).await;
-        let effects = station
+        let (_, effects, _) = station
             .execute_transaction(reservation_id1, tx_data, user_sig)
             .await
             .unwrap();

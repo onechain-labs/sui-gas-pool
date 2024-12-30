@@ -10,7 +10,7 @@ use crate::{retry_forever, retry_with_max_attempts};
 use anyhow::bail;
 use std::sync::Arc;
 use std::time::Duration;
-use sui_json_rpc_types::{SuiTransactionBlockEffects, SuiTransactionBlockEffectsAPI};
+use sui_json_rpc_types::{SuiTransactionBlockEffects, SuiTransactionBlockEffectsAPI, SuiTransactionBlockEvents};
 use sui_types::base_types::{ObjectID, ObjectRef, SuiAddress};
 use sui_types::gas_coin::MIST_PER_SUI;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
@@ -88,7 +88,7 @@ impl GasPool {
         reservation_id: ReservationID,
         tx_data: TransactionData,
         user_sig: GenericSignature,
-    ) -> anyhow::Result<SuiTransactionBlockEffects> {
+    ) -> anyhow::Result<(u64, SuiTransactionBlockEffects, SuiTransactionBlockEvents)> {
         let sponsor = tx_data.gas_data().owner;
         if !self.signer.is_valid_address(&sponsor) {
             bail!("Sponsor {:?} is not registered", sponsor);
@@ -123,7 +123,7 @@ impl GasPool {
             .execute_transaction_impl(reservation_id, tx_data, user_sig)
             .await;
         let updated_coins = match &response {
-            Ok(effects) => {
+            Ok((_, effects, _)) => {
                 let new_gas_coin = effects.gas_object().reference.to_object_ref();
                 let new_balance =
                     total_gas_coin_balance as i64 - effects.gas_cost_summary().net_gas_usage();
@@ -182,7 +182,7 @@ impl GasPool {
         reservation_id: ReservationID,
         tx_data: TransactionData,
         user_sig: GenericSignature,
-    ) -> anyhow::Result<SuiTransactionBlockEffects> {
+    ) -> anyhow::Result<(u64, SuiTransactionBlockEffects, SuiTransactionBlockEvents)> {
         let sponsor = tx_data.gas_data().owner;
         let cur_time = std::time::Instant::now();
         let sponsor_sig = retry_with_max_attempts!(
@@ -202,19 +202,19 @@ impl GasPool {
 
         let tx = Transaction::from_generic_sig_data(tx_data, vec![sponsor_sig, user_sig]);
         let cur_time = std::time::Instant::now();
-        let effects = self.sui_client.execute_transaction(tx, 3).await?;
+        let response = self.sui_client.execute_transaction(tx, 3).await?;
         debug!(?reservation_id, "Transaction executed");
         let elapsed = cur_time.elapsed().as_millis();
         self.metrics
             .transaction_execution_latency_ms
             .observe(elapsed as u64);
-        let net_gas_usage = effects.gas_cost_summary().net_gas_usage();
+        let net_gas_usage = response.1.gas_cost_summary().net_gas_usage();
         let new_daily_usage = self.gas_usage_cap.update_usage(net_gas_usage).await;
         self.metrics
             .daily_gas_usage
             .with_label_values(&[&sponsor.to_string()])
             .set(new_daily_usage);
-        Ok(effects)
+        Ok(response)
     }
 
     async fn get_total_gas_coin_balance(&self, gas_coins: Vec<ObjectID>) -> u64 {
@@ -268,7 +268,7 @@ impl GasPool {
                 .await
                 .tap_err(|err| error!("Failed to call update_gas_coins on storage: {:?}", err))
         })
-        .unwrap();
+            .unwrap();
     }
 
     /// Performs an end-to-end flow of reserving gas, signing a transaction, and releasing the gas coins.
@@ -349,7 +349,7 @@ impl GasPoolContainer {
             metrics,
             Arc::new(GasUsageCap::new(gas_usage_daily_cap)),
         )
-        .await;
+            .await;
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
         let _coin_unlocker_task = inner.clone().start_coin_unlock_task(cancel_receiver).await;
 

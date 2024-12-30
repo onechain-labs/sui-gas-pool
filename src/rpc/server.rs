@@ -162,16 +162,16 @@ async fn reserve_gas(
         gas_budget,
         reserve_duration_secs,
     ))
-    .await
-    .unwrap_or_else(|err| {
-        error!("Failed to spawn reserve_gas task: {:?}", err);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ReserveGasResponse::new_err(anyhow::anyhow!(
+        .await
+        .unwrap_or_else(|err| {
+            error!("Failed to spawn reserve_gas task: {:?}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ReserveGasResponse::new_err(anyhow::anyhow!(
                 "Failed to spawn reserve_gas task"
             ))),
-        )
-    })
+            )
+        })
 }
 
 async fn reserve_gas_impl(
@@ -245,16 +245,16 @@ async fn execute_tx(
         tx_data,
         user_sig,
     ))
-    .await
-    .unwrap_or_else(|err| {
-        error!("Failed to spawn reserve_gas task: {:?}", err);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+        .await
+        .unwrap_or_else(|err| {
+            error!("Failed to spawn reserve_gas task: {:?}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
                 "Failed to spawn execute_tx task"
             ))),
-        )
-    })
+            )
+        })
 }
 
 async fn execute_tx_impl(
@@ -268,7 +268,7 @@ async fn execute_tx_impl(
         .execute_transaction(reservation_id, tx_data, user_sig)
         .await
     {
-        Ok(effects) => {
+        Ok((timestamp_ms, effects, events)) => {
             info!(
                 ?reservation_id,
                 "Successfully executed transaction {:?} with status: {:?}",
@@ -276,7 +276,7 @@ async fn execute_tx_impl(
                 effects.status()
             );
             metrics.num_successful_execute_tx_requests.inc();
-            (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
+            (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects, events, timestamp_ms)))
         }
         Err(err) => {
             error!("Failed to execute transaction: {:?}", err);
