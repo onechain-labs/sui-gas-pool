@@ -8,7 +8,7 @@ use futures_util::StreamExt;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::time::Duration;
-use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
+use sui_json_rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockEvents};
 use sui_json_rpc_types::{
     SuiData, SuiObjectDataOptions, SuiObjectResponse, SuiTransactionBlockEffects,
     SuiTransactionBlockResponseOptions,
@@ -60,7 +60,7 @@ impl SuiClient {
                     .await
                     .tap_err(|err| debug!("Failed to get owned gas coins: {:?}", err))
             })
-            .unwrap();
+                .unwrap();
             for coin in page.data {
                 if coin.balance >= balance_threshold {
                     coins.push(GasCoin {
@@ -86,12 +86,12 @@ impl SuiClient {
                 .await
                 .tap_err(|err| debug!("Failed to get reference gas price: {:?}", err))
         })
-        .unwrap()
+            .unwrap()
     }
 
     pub async fn get_latest_gas_objects(
         &self,
-        object_ids: impl IntoIterator<Item = ObjectID>,
+        object_ids: impl IntoIterator<Item=ObjectID>,
     ) -> HashMap<ObjectID, Option<GasCoin>> {
         let tasks: FuturesUnordered<_> = object_ids
             .into_iter()
@@ -121,7 +121,7 @@ impl SuiClient {
                         }
                         Ok(chunk.into_iter().zip(result).collect::<Vec<_>>())
                     })
-                    .unwrap()
+                        .unwrap()
                 })
             })
             .collect();
@@ -192,7 +192,7 @@ impl SuiClient {
                 )
                 .await
         })
-        .unwrap();
+            .unwrap();
         let gas_used = response.effects.gas_cost_summary().gas_used();
         // Multiply by 2 to be conservative and resilient to precision loss.
         gas_used / SPLIT_COUNT * 2
@@ -201,9 +201,11 @@ impl SuiClient {
     pub async fn execute_transaction(
         &self,
         tx: Transaction,
+        request_type: Option<ExecuteTransactionRequestType>,
         max_attempts: usize,
-    ) -> anyhow::Result<SuiTransactionBlockEffects> {
+    ) -> anyhow::Result<(Option<u64>, SuiTransactionBlockEffects, Option<SuiTransactionBlockEvents>)> {
         let digest = *tx.digest();
+        let request_type = request_type.or(Some(ExecuteTransactionRequestType::WaitForEffectsCert));
         debug!(?digest, "Executing transaction: {:?}", tx);
         let response = retry_with_max_attempts!(
             async {
@@ -211,18 +213,18 @@ impl SuiClient {
                     .quorum_driver_api()
                     .execute_transaction_block(
                         tx.clone(),
-                        SuiTransactionBlockResponseOptions::new().with_effects(),
-                        Some(ExecuteTransactionRequestType::WaitForEffectsCert),
+                        SuiTransactionBlockResponseOptions::new().with_effects().with_events(),
+                        request_type.clone(),
                     )
                     .await
                     .tap_err(|err| debug!(?digest, "execute_transaction error: {:?}", err))
                     .map_err(anyhow::Error::from)
-                    .and_then(|r| r.effects.ok_or_else(|| anyhow::anyhow!("No effects")))
             },
             max_attempts
-        );
-        debug!(?digest, "Transaction execution response: {:?}", response);
-        response
+        )?;
+        let effects = response.effects.ok_or(anyhow::anyhow!("No effects"))?;
+        debug!(?digest, "Transaction execution effects: {:?}", effects);
+        Ok((response.timestamp_ms, effects, response.events))
     }
 
     /// Wait for a known valid object version to be available on the fullnode.
@@ -234,8 +236,8 @@ impl SuiClient {
                 .get_object_with_options(obj_ref.0, SuiObjectDataOptions::default())
                 .await;
             if let Ok(SuiObjectResponse {
-                data: Some(data), ..
-            }) = response
+                          data: Some(data), ..
+                      }) = response
             {
                 if data.version == obj_ref.1 {
                     break;

@@ -8,15 +8,15 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use sui_config::Config;
 use sui_types::crypto::{get_account_key_pair, SuiKeyPair};
-use sui_types::gas_coin::MIST_PER_SUI;
+use sui_types::gas_coin::MIST_PER_HC;
 
 pub const DEFAULT_RPC_PORT: u16 = 9527;
 pub const DEFAULT_METRICS_PORT: u16 = 9184;
 // 0.1 SUI.
-pub const DEFAULT_INIT_COIN_BALANCE: u64 = MIST_PER_SUI / 10;
+pub const DEFAULT_INIT_COIN_BALANCE: u64 = MIST_PER_HC / 10;
 // 24 hours.
 const DEFAULT_COIN_POOL_REFRESH_INTERVAL_SEC: u64 = 60 * 60 * 24;
-pub const DEFAULT_DAILY_GAS_USAGE_CAP: u64 = 1500 * MIST_PER_SUI;
+pub const DEFAULT_DAILY_GAS_USAGE_CAP: u64 = 1500 * MIST_PER_HC;
 
 // Use 127.0.0.1 for tests to avoid OS complaining about permissions.
 #[cfg(test)]

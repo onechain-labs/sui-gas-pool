@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
 use sui_types::crypto::ToFromBytes;
+use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 use sui_types::signature::GenericSignature;
 use sui_types::transaction::TransactionData;
 use tokio::task::JoinHandle;
@@ -162,16 +163,16 @@ async fn reserve_gas(
         gas_budget,
         reserve_duration_secs,
     ))
-    .await
-    .unwrap_or_else(|err| {
-        error!("Failed to spawn reserve_gas task: {:?}", err);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ReserveGasResponse::new_err(anyhow::anyhow!(
+        .await
+        .unwrap_or_else(|err| {
+            error!("Failed to spawn reserve_gas task: {:?}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ReserveGasResponse::new_err(anyhow::anyhow!(
                 "Failed to spawn reserve_gas task"
             ))),
-        )
-    })
+            )
+        })
 }
 
 async fn reserve_gas_impl(
@@ -227,6 +228,7 @@ async fn execute_tx(
     let ExecuteTxRequest {
         reservation_id,
         tx_bytes,
+        request_type,
         user_sig,
     } = payload;
     let Ok((tx_data, user_sig)) = convert_tx_and_sig(tx_bytes, user_sig) else {
@@ -243,18 +245,19 @@ async fn execute_tx(
         server.metrics.clone(),
         reservation_id,
         tx_data,
+        request_type,
         user_sig,
     ))
-    .await
-    .unwrap_or_else(|err| {
-        error!("Failed to spawn reserve_gas task: {:?}", err);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+        .await
+        .unwrap_or_else(|err| {
+            error!("Failed to spawn reserve_gas task: {:?}", err);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
                 "Failed to spawn execute_tx task"
             ))),
-        )
-    })
+            )
+        })
 }
 
 async fn execute_tx_impl(
@@ -262,13 +265,14 @@ async fn execute_tx_impl(
     metrics: Arc<GasPoolRpcMetrics>,
     reservation_id: u64,
     tx_data: TransactionData,
+    request_type: Option<ExecuteTransactionRequestType>,
     user_sig: GenericSignature,
 ) -> (StatusCode, Json<ExecuteTxResponse>) {
     match gas_station
-        .execute_transaction(reservation_id, tx_data, user_sig)
+        .execute_transaction(reservation_id, tx_data, request_type, user_sig)
         .await
     {
-        Ok(effects) => {
+        Ok((timestamp_ms, effects, events)) => {
             info!(
                 ?reservation_id,
                 "Successfully executed transaction {:?} with status: {:?}",
@@ -276,7 +280,7 @@ async fn execute_tx_impl(
                 effects.status()
             );
             metrics.num_successful_execute_tx_requests.inc();
-            (StatusCode::OK, Json(ExecuteTxResponse::new_ok(effects)))
+            (StatusCode::OK, Json(ExecuteTxResponse::new_ok(timestamp_ms, effects, events)))
         }
         Err(err) => {
             error!("Failed to execute transaction: {:?}", err);

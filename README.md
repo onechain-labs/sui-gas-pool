@@ -97,7 +97,9 @@ pub struct ExecuteTxRequest {
 }
 
 pub struct ExecuteTxResponse {
+    pub timestamp_ms: Option<u64>,
     pub effects: Option<SuiTransactionBlockEffects>,
+    pub events: Option<SuiTransactionBlockEvents>,
     pub error: Option<String>,
 }
 

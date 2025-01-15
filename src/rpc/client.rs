@@ -12,6 +12,7 @@ use reqwest::header::{HeaderMap, AUTHORIZATION};
 use reqwest::Client;
 use sui_json_rpc_types::SuiTransactionBlockEffects;
 use sui_types::base_types::{ObjectRef, SuiAddress};
+use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 use sui_types::signature::GenericSignature;
 use sui_types::transaction::TransactionData;
 
@@ -126,6 +127,7 @@ impl GasPoolRpcClient {
         &self,
         reservation_id: ReservationID,
         tx_data: &TransactionData,
+        request_type: Option<ExecuteTransactionRequestType>,
         user_sig: &GenericSignature,
     ) -> anyhow::Result<SuiTransactionBlockEffects> {
         let mut headers = HeaderMap::new();
@@ -136,6 +138,7 @@ impl GasPoolRpcClient {
         let request = ExecuteTxRequest {
             reservation_id,
             tx_bytes: Base64::from_bytes(&bcs::to_bytes(&tx_data).unwrap()),
+            request_type,
             user_sig: Base64::from_bytes(user_sig.as_ref()),
         };
         let response = self

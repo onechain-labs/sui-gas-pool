@@ -12,25 +12,25 @@ mod tests {
     use crate::test_env::{create_test_transaction, start_rpc_server_for_testing};
     use crate::AUTH_ENV_NAME;
     use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
-    use sui_types::gas_coin::MIST_PER_SUI;
+    use sui_types::gas_coin::MIST_PER_HC;
 
     #[tokio::test]
     async fn test_basic_rpc_flow() {
         let (test_cluster, _container, server) =
-            start_rpc_server_for_testing(vec![MIST_PER_SUI; 10], MIST_PER_SUI).await;
+            start_rpc_server_for_testing(vec![MIST_PER_HC; 10], MIST_PER_HC).await;
         let client = server.get_local_client();
         client.health().await.unwrap();
 
         let (sponsor, reservation_id, gas_coins) =
-            client.reserve_gas(MIST_PER_SUI, 10).await.unwrap();
+            client.reserve_gas(MIST_PER_HC, 10).await.unwrap();
         assert_eq!(gas_coins.len(), 1);
 
         // We can no longer request all balance given one is loaned out above.
-        assert!(client.reserve_gas(MIST_PER_SUI * 10, 10).await.is_err());
+        assert!(client.reserve_gas(MIST_PER_HC * 10, 10).await.is_err());
 
         let (tx_data, user_sig) = create_test_transaction(&test_cluster, sponsor, gas_coins).await;
         let effects = client
-            .execute_tx(reservation_id, &tx_data, &user_sig)
+            .execute_tx(reservation_id, &tx_data, None, &user_sig)
             .await
             .unwrap();
         assert!(effects.status().is_ok());
@@ -39,23 +39,23 @@ mod tests {
     #[tokio::test]
     async fn test_invalid_auth() {
         let (_test_cluster, _container, server) =
-            start_rpc_server_for_testing(vec![MIST_PER_SUI; 10], MIST_PER_SUI).await;
+            start_rpc_server_for_testing(vec![MIST_PER_HC; 10], MIST_PER_HC).await;
 
         let client = server.get_local_client();
         client.health().await.unwrap();
 
-        let (_sponsor, _res_id, gas_coins) = client.reserve_gas(MIST_PER_SUI, 10).await.unwrap();
+        let (_sponsor, _res_id, gas_coins) = client.reserve_gas(MIST_PER_HC, 10).await.unwrap();
         assert_eq!(gas_coins.len(), 1);
 
         // Change the auth secret used in the client.
         std::env::set_var(AUTH_ENV_NAME, "b");
-        assert!(client.reserve_gas(MIST_PER_SUI, 10).await.is_err());
+        assert!(client.reserve_gas(MIST_PER_HC, 10).await.is_err());
     }
 
     #[tokio::test]
     async fn test_debug_health_check() {
         let (_test_cluster, _container, server) =
-            start_rpc_server_for_testing(vec![MIST_PER_SUI; 10], MIST_PER_SUI).await;
+            start_rpc_server_for_testing(vec![MIST_PER_HC; 10], MIST_PER_HC).await;
 
         let client = server.get_local_client();
         client.debug_health_check().await.unwrap();

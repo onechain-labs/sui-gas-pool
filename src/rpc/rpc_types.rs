@@ -5,8 +5,9 @@ use crate::types::ReservationID;
 use fastcrypto::encoding::Base64;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sui_json_rpc_types::{SuiObjectRef, SuiTransactionBlockEffects};
+use sui_json_rpc_types::{SuiObjectRef, SuiTransactionBlockEffects, SuiTransactionBlockEvents};
 use sui_types::base_types::{ObjectRef, SuiAddress};
+use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 
 // 2 SUI.
 pub const MAX_BUDGET: u64 = 2_000_000_000;
@@ -82,26 +83,33 @@ impl ReserveGasResponse {
 pub struct ExecuteTxRequest {
     pub reservation_id: ReservationID,
     pub tx_bytes: Base64,
+    pub request_type: Option<ExecuteTransactionRequestType>,
     pub user_sig: Base64,
 }
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
 pub struct ExecuteTxResponse {
+    pub timestamp_ms: Option<u64>,
     pub effects: Option<SuiTransactionBlockEffects>,
+    pub events: Option<SuiTransactionBlockEvents>,
     pub error: Option<String>,
 }
 
 impl ExecuteTxResponse {
-    pub fn new_ok(effects: SuiTransactionBlockEffects) -> Self {
+    pub fn new_ok(timestamp_ms: Option<u64>, effects: SuiTransactionBlockEffects, events: Option<SuiTransactionBlockEvents>) -> Self {
         Self {
+            timestamp_ms,
             effects: Some(effects),
+            events,
             error: None,
         }
     }
 
     pub fn new_err(error: anyhow::Error) -> Self {
         Self {
+            timestamp_ms: None,
             effects: None,
+            events: None,
             error: Some(error.to_string()),
         }
     }
