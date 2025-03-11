@@ -7,6 +7,7 @@ use crate::read_auth_env;
 use crate::rpc::client::GasPoolRpcClient;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
+    SupportAddressResponse,
 };
 use axum::headers::authorization::Bearer;
 use axum::headers::Authorization;
@@ -19,6 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use sui_json_rpc_types::SuiTransactionBlockEffectsAPI;
+use sui_types::base_types::SuiAddress;
 use sui_types::crypto::ToFromBytes;
 use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 use sui_types::signature::GenericSignature;
@@ -62,6 +64,7 @@ impl GasPoolServer {
             .route("/debug_health_check", post(debug_health_check))
             .route("/v1/reserve_gas", post(reserve_gas))
             .route("/v1/execute_tx", post(execute_tx))
+            .route("/v1/support_address", get(support_address))
             .layer(Extension(state));
         let address = SocketAddr::new(IpAddr::V4(host_ip), rpc_port);
         let handle = tokio::spawn(async move {
@@ -145,6 +148,7 @@ async fn reserve_gas(
         );
     }
     let ReserveGasRequest {
+        sponsor_address,
         gas_budget,
         reserve_duration_secs,
     } = payload;
@@ -160,29 +164,35 @@ async fn reserve_gas(
     tokio::task::spawn(reserve_gas_impl(
         server.gas_station.clone(),
         server.metrics.clone(),
+        sponsor_address,
         gas_budget,
         reserve_duration_secs,
     ))
-        .await
-        .unwrap_or_else(|err| {
-            error!("Failed to spawn reserve_gas task: {:?}", err);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ReserveGasResponse::new_err(anyhow::anyhow!(
+    .await
+    .unwrap_or_else(|err| {
+        error!("Failed to spawn reserve_gas task: {:?}", err);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ReserveGasResponse::new_err(anyhow::anyhow!(
                 "Failed to spawn reserve_gas task"
             ))),
-            )
-        })
+        )
+    })
 }
 
 async fn reserve_gas_impl(
     gas_station: Arc<GasPool>,
     metrics: Arc<GasPoolRpcMetrics>,
+    sponsor_address: Option<SuiAddress>,
     gas_budget: u64,
     reserve_duration_secs: u64,
 ) -> (StatusCode, Json<ReserveGasResponse>) {
     match gas_station
-        .reserve_gas(gas_budget, Duration::from_secs(reserve_duration_secs))
+        .reserve_gas(
+            sponsor_address,
+            gas_budget,
+            Duration::from_secs(reserve_duration_secs),
+        )
         .await
     {
         Ok((sponsor, reservation_id, gas_coins)) => {
@@ -248,16 +258,16 @@ async fn execute_tx(
         request_type,
         user_sig,
     ))
-        .await
-        .unwrap_or_else(|err| {
-            error!("Failed to spawn reserve_gas task: {:?}", err);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
+    .await
+    .unwrap_or_else(|err| {
+        error!("Failed to spawn reserve_gas task: {:?}", err);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ExecuteTxResponse::new_err(anyhow::anyhow!(
                 "Failed to spawn execute_tx task"
             ))),
-            )
-        })
+        )
+    })
 }
 
 async fn execute_tx_impl(
@@ -280,7 +290,10 @@ async fn execute_tx_impl(
                 effects.status()
             );
             metrics.num_successful_execute_tx_requests.inc();
-            (StatusCode::OK, Json(ExecuteTxResponse::new_ok(timestamp_ms, effects, events)))
+            (
+                StatusCode::OK,
+                Json(ExecuteTxResponse::new_ok(timestamp_ms, effects, events)),
+            )
         }
         Err(err) => {
             error!("Failed to execute transaction: {:?}", err);
@@ -308,4 +321,25 @@ fn convert_tx_and_sig(
             .map_err(|_| anyhow::anyhow!("Failed to convert user_sig to vector"))?,
     )?;
     Ok((tx, user_sig))
+}
+
+async fn support_address(
+    TypedHeader(authorization): TypedHeader<Authorization<Bearer>>,
+    Extension(server): Extension<ServerState>,
+) -> impl IntoResponse {
+    if authorization.token() != server.secret.as_ref() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(SupportAddressResponse::new_err(anyhow::anyhow!(
+                "Invalid authorization token"
+            ))),
+        );
+    }
+
+    let support_address = server.gas_station.support_address();
+
+    (
+        StatusCode::OK,
+        Json(SupportAddressResponse::new_ok(support_address)),
+    )
 }

@@ -70,6 +70,7 @@ An HTTP server is implemented to take the following 3 requests:
 
 ```rust
 pub struct ReserveGasRequest {
+    pub sponsor_address: Option<SuiAddress>,
     /// Desired gas budget. The response will contain gas coins that have total balance >= gas_budget.
     pub gas_budget: u64,
     /// The reserved gas coins will be released back to the pool after this duration expires.
@@ -92,6 +93,7 @@ pub struct ExecuteTxRequest {
     pub reservation_id: ReservationID,
     /// BCS serialized transaction data bytes without its type tag, as base-64 encoded string.
     pub tx_bytes: Base64,
+    pub request_type: Option<ExecuteTransactionRequestType>,
     /// User signature (`flag || signature || pubkey` bytes, as base-64 encoded string). Signature is committed to the intent message of the transaction data, as base-64 encoded string.
     pub user_sig: Base64,
 }

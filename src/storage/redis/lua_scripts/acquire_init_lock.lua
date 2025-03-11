@@ -13,16 +13,26 @@
 -- The third argument is the duration for which the lock should be held. This should be in the same
 -- units as the current timestamp.
 
-local sponsor_address = ARGV[1]
+local sponsor_addresses = cjson.decode(ARGV[1])
 local current_time = tonumber(ARGV[2])
 local lock_duration = tonumber(ARGV[3])
 
-local t_init_lock = sponsor_address .. ':init_lock'
-local locked_timestamp = redis.call('GET', t_init_lock)
+local results = {}
 
-if locked_timestamp == false or tonumber(locked_timestamp) < current_time then
-    redis.call('SET', t_init_lock, current_time + lock_duration)
-    return 1
-else
-    return 0
+for _, sponsor_address in ipairs(sponsor_addresses) do
+    local t_init_lock = sponsor_address .. ':init_lock'
+    local locked_timestamp = redis.call('GET', t_init_lock)
+
+    if locked_timestamp == false or tonumber(locked_timestamp) < current_time then
+        redis.call('SET', t_init_lock, current_time + lock_duration)
+        table.insert(results, {
+            sponsor_address, true
+        })
+    else
+        table.insert(results, {
+            sponsor_address, false
+        })
+    end
 end
+
+return cjson.encode(results)

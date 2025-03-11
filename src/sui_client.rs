@@ -8,11 +8,11 @@ use futures_util::StreamExt;
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::time::Duration;
-use sui_json_rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockEvents};
 use sui_json_rpc_types::{
     SuiData, SuiObjectDataOptions, SuiObjectResponse, SuiTransactionBlockEffects,
     SuiTransactionBlockResponseOptions,
 };
+use sui_json_rpc_types::{SuiTransactionBlockEffectsAPI, SuiTransactionBlockEvents};
 use sui_sdk::SuiClientBuilder;
 use sui_types::base_types::{ObjectID, ObjectRef, SuiAddress};
 use sui_types::coin::{PAY_MODULE_NAME, PAY_SPLIT_N_FUNC_NAME};
@@ -60,10 +60,11 @@ impl SuiClient {
                     .await
                     .tap_err(|err| debug!("Failed to get owned gas coins: {:?}", err))
             })
-                .unwrap();
+            .unwrap();
             for coin in page.data {
                 if coin.balance >= balance_threshold {
                     coins.push(GasCoin {
+                        owner: address,
                         object_ref: coin.object_ref(),
                         balance: coin.balance,
                     });
@@ -86,12 +87,12 @@ impl SuiClient {
                 .await
                 .tap_err(|err| debug!("Failed to get reference gas price: {:?}", err))
         })
-            .unwrap()
+        .unwrap()
     }
 
     pub async fn get_latest_gas_objects(
         &self,
-        object_ids: impl IntoIterator<Item=ObjectID>,
+        object_ids: impl IntoIterator<Item = ObjectID>,
     ) -> HashMap<ObjectID, Option<GasCoin>> {
         let tasks: FuturesUnordered<_> = object_ids
             .into_iter()
@@ -121,7 +122,7 @@ impl SuiClient {
                         }
                         Ok(chunk.into_iter().zip(result).collect::<Vec<_>>())
                     })
-                        .unwrap()
+                    .unwrap()
                 })
             })
             .collect();
@@ -192,7 +193,7 @@ impl SuiClient {
                 )
                 .await
         })
-            .unwrap();
+        .unwrap();
         let gas_used = response.effects.gas_cost_summary().gas_used();
         // Multiply by 2 to be conservative and resilient to precision loss.
         gas_used / SPLIT_COUNT * 2
@@ -203,7 +204,11 @@ impl SuiClient {
         tx: Transaction,
         request_type: Option<ExecuteTransactionRequestType>,
         max_attempts: usize,
-    ) -> anyhow::Result<(Option<u64>, SuiTransactionBlockEffects, Option<SuiTransactionBlockEvents>)> {
+    ) -> anyhow::Result<(
+        Option<u64>,
+        SuiTransactionBlockEffects,
+        Option<SuiTransactionBlockEvents>,
+    )> {
         let digest = *tx.digest();
         let request_type = request_type.or(Some(ExecuteTransactionRequestType::WaitForEffectsCert));
         debug!(?digest, "Executing transaction: {:?}", tx);
@@ -213,7 +218,9 @@ impl SuiClient {
                     .quorum_driver_api()
                     .execute_transaction_block(
                         tx.clone(),
-                        SuiTransactionBlockResponseOptions::new().with_effects().with_events(),
+                        SuiTransactionBlockResponseOptions::new()
+                            .with_effects()
+                            .with_events(),
                         request_type.clone(),
                     )
                     .await
@@ -236,8 +243,8 @@ impl SuiClient {
                 .get_object_with_options(obj_ref.0, SuiObjectDataOptions::default())
                 .await;
             if let Ok(SuiObjectResponse {
-                          data: Some(data), ..
-                      }) = response
+                data: Some(data), ..
+            }) = response
             {
                 if data.version == obj_ref.1 {
                     break;
@@ -249,6 +256,7 @@ impl SuiClient {
 
     fn try_get_sui_coin_balance(object: &SuiObjectResponse) -> Option<GasCoin> {
         let data = object.data.as_ref()?;
+        let owner = data.owner.clone()?.get_address_owner_address().ok()?;
         let object_ref = data.object_ref();
         let move_obj = data.bcs.as_ref()?.try_as_move()?;
         if move_obj.type_ != sui_types::gas_coin::GasCoin::type_() {
@@ -256,6 +264,7 @@ impl SuiClient {
         }
         let gas_coin: sui_types::gas_coin::GasCoin = bcs::from_bytes(&move_obj.bcs_bytes).ok()?;
         Some(GasCoin {
+            owner,
             object_ref,
             balance: gas_coin.value(),
         })

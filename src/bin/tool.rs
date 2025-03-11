@@ -113,7 +113,7 @@ impl ToolCommand {
                     }
                 } else {
                     TxSignerConfig::Local {
-                        keypair: get_account_key_pair().1.into(),
+                        keypair: vec![get_account_key_pair().1.into()],
                     }
                 };
                 let config = GasStationConfig {

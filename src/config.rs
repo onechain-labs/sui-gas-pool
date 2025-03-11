@@ -80,7 +80,7 @@ impl Default for GasPoolStorageConfig {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TxSignerConfig {
-    Local { keypair: SuiKeyPair },
+    Local { keypair: Vec<SuiKeyPair> },
     Sidecar { sidecar_url: String },
 }
 
@@ -88,7 +88,7 @@ impl Default for TxSignerConfig {
     fn default() -> Self {
         let (_, keypair) = get_account_key_pair();
         Self::Local {
-            keypair: keypair.into(),
+            keypair: vec![keypair.into()],
         }
     }
 }

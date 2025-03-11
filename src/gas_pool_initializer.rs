@@ -10,6 +10,7 @@ use crate::types::GasCoin;
 use parking_lot::Mutex;
 use std::cmp::min;
 use std::collections::VecDeque;
+use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,6 +71,7 @@ impl CoinSplitEnv {
 
     async fn split_one_gas_coin(self, mut coin: GasCoin) -> Vec<GasCoin> {
         let rgp = self.rgp;
+        let sponsor_address = coin.owner;
         let split_count = min(
             // Max number of object mutations per transaction is 2048.
             2000,
@@ -92,7 +94,7 @@ impl CoinSplitEnv {
             );
             let pt = pt_builder.finish();
             let tx_data = TransactionData::new_programmable(
-                self.sponsor_address,
+                sponsor_address,
                 vec![coin.object_ref],
                 pt,
                 budget,
@@ -104,13 +106,16 @@ impl CoinSplitEnv {
                     .await
                     .tap_err(|err| error!("Failed to sign transaction: {:?}", err))
             })
-                .unwrap();
+            .unwrap();
             let tx = Transaction::from_generic_sig_data(tx_data, vec![sig]);
             debug!(
                 "Sending transaction for execution. Tx digest: {:?}",
                 tx.digest()
             );
-            let result = self.sui_client.execute_transaction(tx.clone(), None, 10).await;
+            let result = self
+                .sui_client
+                .execute_transaction(tx.clone(), None, 10)
+                .await;
             match result {
                 Ok((_, effects, _)) => {
                     assert!(
@@ -140,6 +145,7 @@ impl CoinSplitEnv {
         let new_coin_balance = (coin.balance - budget) / split_count;
         for created in effects.created() {
             result.extend(self.enqueue_task(GasCoin {
+                owner: coin.owner,
                 object_ref: created.reference.to_object_ref(),
                 balance: new_coin_balance,
             }));
@@ -147,6 +153,7 @@ impl CoinSplitEnv {
         let remaining_coin_balance = (coin.balance - new_coin_balance * (split_count - 1)) as i64
             - effects.gas_cost_summary().net_gas_usage();
         result.extend(self.enqueue_task(GasCoin {
+            owner: sponsor_address,
             object_ref: effects.gas_object().reference.to_object_ref(),
             balance: remaining_coin_balance as u64,
         }));
@@ -188,7 +195,7 @@ impl GasPoolInitializer {
                 coin_init_config.target_init_balance,
                 &signer,
             )
-                .await;
+            .await;
         }
         let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
         let _task_handle = tokio::spawn(Self::run(
@@ -227,7 +234,7 @@ impl GasPoolInitializer {
                 coin_init_config.target_init_balance,
                 &signer,
             )
-                .await;
+            .await;
         }
     }
 
@@ -238,17 +245,13 @@ impl GasPoolInitializer {
         target_init_coin_balance: u64,
         signer: &Arc<dyn TxSigner>,
     ) {
-        let sponsor_address = signer.get_address();
-        if storage
+        let init_lock_vec = storage
             .acquire_init_lock(MAX_INIT_DURATION_SEC)
             .await
-            .unwrap()
-        {
-            info!("Acquired init lock. Starting new coin initialization");
-        } else {
-            info!("Another task is already initializing the pool. Skipping this round");
-            return;
-        }
+            .unwrap();
+
+        let mut handles = vec![];
+
         let start = Instant::now();
         let balance_threshold = if matches!(mode, RunMode::Init) {
             info!("The pool has never been initialized. Initializing it for the first time");
@@ -256,40 +259,66 @@ impl GasPoolInitializer {
         } else {
             target_init_coin_balance * NEW_COIN_BALANCE_FACTOR_THRESHOLD
         };
-        let coins = sui_client
-            .get_all_owned_sui_coins_above_balance_threshold(sponsor_address, balance_threshold)
-            .await;
-        if coins.is_empty() {
-            info!(
-                "No coins with balance above {} found. Skipping new coin initialization",
-                balance_threshold
-            );
-            storage.release_init_lock().await.unwrap();
-            return;
+
+        for (sponsor, init_lock) in init_lock_vec {
+            if !init_lock {
+                info!("Sponsor {:?} Another task is already initializing the pool. Skipping this round", sponsor);
+            } else {
+                info!(
+                    "Sponsor {:?} Acquired init lock. Starting new coin initialization",
+                    sponsor
+                );
+                let sui_client = sui_client.clone();
+                let storage = storage.clone();
+                let signer = signer.clone();
+
+                let sponsor = SuiAddress::from_str(&sponsor).unwrap();
+
+                handles.push(tokio::spawn(async move {
+                    let coins = sui_client
+                        .get_all_owned_sui_coins_above_balance_threshold(sponsor, balance_threshold)
+                        .await;
+                    if coins.is_empty() {
+                        info!(
+                        "No coins with balance above {} found. Skipping new coin initialization",
+                        balance_threshold
+                    );
+                        storage.release_init_lock().await.unwrap();
+                        return;
+                    }
+                    let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
+                    let rgp = sui_client.get_reference_gas_price().await;
+                    let gas_cost_per_object = sui_client
+                        .calibrate_gas_cost_per_object(sponsor, &coins[0])
+                        .await;
+                    info!("Calibrated gas cost per object: {:?}", gas_cost_per_object);
+                    let result = Self::split_gas_coins(
+                        coins,
+                        CoinSplitEnv {
+                            target_init_coin_balance,
+                            gas_cost_per_object,
+                            signer: signer.clone(),
+                            sponsor_address: sponsor,
+                            sui_client: sui_client.clone(),
+                            task_queue: Default::default(),
+                            total_coin_count,
+                            rgp,
+                        },
+                    )
+                    .await;
+                    for chunk in result.chunks(5000) {
+                        storage.add_new_coins(chunk.to_vec()).await.unwrap();
+                    }
+                }));
+            }
         }
-        let total_coin_count = Arc::new(AtomicUsize::new(coins.len()));
-        let rgp = sui_client.get_reference_gas_price().await;
-        let gas_cost_per_object = sui_client
-            .calibrate_gas_cost_per_object(sponsor_address, &coins[0])
-            .await;
-        info!("Calibrated gas cost per object: {:?}", gas_cost_per_object);
-        let result = Self::split_gas_coins(
-            coins,
-            CoinSplitEnv {
-                target_init_coin_balance,
-                gas_cost_per_object,
-                signer: signer.clone(),
-                sponsor_address,
-                sui_client,
-                task_queue: Default::default(),
-                total_coin_count,
-                rgp,
-            },
-        )
-            .await;
-        for chunk in result.chunks(5000) {
-            storage.add_new_coins(chunk.to_vec()).await.unwrap();
+
+        for handle in handles {
+            if let Err(e) = handle.await {
+                error!("Error processing sponsor: {:?}", e);
+            }
         }
+
         storage.release_init_lock().await.unwrap();
         info!(
             "New coin initialization took {:?}s",
@@ -343,7 +372,9 @@ mod tests {
         telemetry_subscribers::init_for_testing();
         let (cluster, signer) = start_sui_cluster(vec![1000 * MIST_PER_HC]).await;
         let fullnode_url = cluster.fullnode_handle.rpc_url;
-        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let sponsor_addresses = signer.get_addresses();
+        let sponsor = sponsor_addresses[0];
+        let storage = connect_storage_for_testing(sponsor_addresses).await;
         let sui_client = SuiClient::new(&fullnode_url, None).await;
         let _ = GasPoolInitializer::start(
             sui_client,
@@ -354,8 +385,8 @@ mod tests {
             },
             signer,
         )
-            .await;
-        assert!(storage.get_available_coin_count().await.unwrap() > 900);
+        .await;
+        assert!(storage.get_available_coin_count(sponsor).await.unwrap() > 900);
     }
 
     #[tokio::test]
@@ -363,7 +394,9 @@ mod tests {
         telemetry_subscribers::init_for_testing();
         let (cluster, signer) = start_sui_cluster(vec![10000000 * MIST_PER_HC]).await;
         let fullnode_url = cluster.fullnode_handle.rpc_url;
-        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let sponsor_addresses = signer.get_addresses();
+        let sponsor = sponsor_addresses[0];
+        let storage = connect_storage_for_testing(sponsor_addresses).await;
         let target_init_balance = 12345 * MIST_PER_HC;
         let sui_client = SuiClient::new(&fullnode_url, None).await;
         let _ = GasPoolInitializer::start(
@@ -375,17 +408,18 @@ mod tests {
             },
             signer,
         )
-            .await;
-        assert!(storage.get_available_coin_count().await.unwrap() > 800);
+        .await;
+        assert!(storage.get_available_coin_count(sponsor).await.unwrap() > 800);
     }
 
     #[tokio::test]
     async fn test_add_new_funds_to_pool() {
         telemetry_subscribers::init_for_testing();
         let (cluster, signer) = start_sui_cluster(vec![1000 * MIST_PER_HC]).await;
-        let sponsor = signer.get_address();
+        let sponsor_addresses = signer.get_addresses();
+        let sponsor = sponsor_addresses[0];
         let fullnode_url = cluster.fullnode_handle.rpc_url.clone();
-        let storage = connect_storage_for_testing(signer.get_address()).await;
+        let storage = connect_storage_for_testing(sponsor_addresses).await;
         let sui_client = SuiClient::new(&fullnode_url, None).await;
         let _init_task = GasPoolInitializer::start(
             sui_client,
@@ -396,9 +430,9 @@ mod tests {
             },
             signer,
         )
-            .await;
+        .await;
         assert!(storage.is_initialized().await.unwrap());
-        let available_coin_count = storage.get_available_coin_count().await.unwrap();
+        let available_coin_count = storage.get_available_coin_count(sponsor).await.unwrap();
         tracing::debug!("Available coin count: {}", available_coin_count);
 
         // Transfer some new SUI into the sponsor account.
@@ -420,7 +454,7 @@ mod tests {
 
         // Give it some time for the task to pick up the new coin and split it.
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        let new_available_coin_count = storage.get_available_coin_count().await.unwrap();
+        let new_available_coin_count = storage.get_available_coin_count(sponsor).await.unwrap();
         assert!(
             // In an ideal world we should have NEW_COIN_BALANCE_FACTOR_THRESHOLD more coins
             // since we just send a new coin with balance NEW_COIN_BALANCE_FACTOR_THRESHOLD and split

@@ -17,6 +17,7 @@ pub const MAX_DURATION_S: u64 = 10 * 60;
 
 #[derive(Clone, Debug, JsonSchema, Serialize, Deserialize)]
 pub struct ReserveGasRequest {
+    pub sponsor_address: Option<SuiAddress>,
     pub gas_budget: u64,
     pub reserve_duration_secs: u64,
 }
@@ -96,7 +97,11 @@ pub struct ExecuteTxResponse {
 }
 
 impl ExecuteTxResponse {
-    pub fn new_ok(timestamp_ms: Option<u64>, effects: SuiTransactionBlockEffects, events: Option<SuiTransactionBlockEvents>) -> Self {
+    pub fn new_ok(
+        timestamp_ms: Option<u64>,
+        effects: SuiTransactionBlockEffects,
+        events: Option<SuiTransactionBlockEvents>,
+    ) -> Self {
         Self {
             timestamp_ms,
             effects: Some(effects),
@@ -110,6 +115,28 @@ impl ExecuteTxResponse {
             timestamp_ms: None,
             effects: None,
             events: None,
+            error: Some(error.to_string()),
+        }
+    }
+}
+
+#[derive(Debug, JsonSchema, Serialize, Deserialize)]
+pub struct SupportAddressResponse {
+    pub sponsor_addresses: Option<Vec<SuiAddress>>,
+    pub error: Option<String>,
+}
+
+impl SupportAddressResponse {
+    pub fn new_ok(sponsor_addresses: Vec<SuiAddress>) -> Self {
+        Self {
+            sponsor_addresses: Some(sponsor_addresses),
+            error: None,
+        }
+    }
+
+    pub fn new_err(error: anyhow::Error) -> Self {
+        Self {
+            sponsor_addresses: None,
             error: Some(error.to_string()),
         }
     }

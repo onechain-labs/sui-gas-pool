@@ -51,17 +51,21 @@ impl BenchmarkMode {
         let mut handles = vec![];
         let stats = Arc::new(RwLock::new(BenchmarkStatsPerSecond::default()));
         let client = GasPoolRpcClient::new(gas_station_url);
+        let support_addresses = client.support_address().await.unwrap();
         let should_execute = matches!(self, Self::ReserveAndExecute);
         for _ in 0..num_clients {
             let client = client.clone();
             let stats = stats.clone();
+            let sponsor = support_addresses[0].clone();
             let handle = tokio::spawn(async move {
                 let (sender, keypair) = get_account_key_pair();
                 let mut rng = OsRng;
                 loop {
                     let now = Instant::now();
                     let budget = rng.gen_range(1_000_000u64..100_000_000u64);
-                    let result = client.reserve_gas(budget, reserve_duration_sec).await;
+                    let result = client
+                        .reserve_gas(sponsor, budget, reserve_duration_sec)
+                        .await;
                     let (sponsor, reservation_id, gas_coins) = match result {
                         Ok(r) => r,
                         Err(err) => {
@@ -87,7 +91,9 @@ impl BenchmarkMode {
                     );
                     let intent_msg = IntentMessage::new(Intent::sui_transaction(), &tx_data);
                     let user_sig = Signature::new_secure(&intent_msg, &keypair).into();
-                    let result = client.execute_tx(reservation_id, &tx_data, None, &user_sig).await;
+                    let result = client
+                        .execute_tx(reservation_id, &tx_data, None, &user_sig)
+                        .await;
                     if let Err(err) = result {
                         stats.write().update_error();
                         println!("Error: {}", err);

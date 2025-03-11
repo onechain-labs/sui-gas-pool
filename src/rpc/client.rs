@@ -4,6 +4,7 @@
 use crate::read_auth_env;
 use crate::rpc::rpc_types::{
     ExecuteTxRequest, ExecuteTxResponse, ReserveGasRequest, ReserveGasResponse,
+    SupportAddressResponse,
 };
 use crate::types::ReservationID;
 use anyhow::bail;
@@ -82,10 +83,12 @@ impl GasPoolRpcClient {
 
     pub async fn reserve_gas(
         &self,
+        sponsor_address: SuiAddress,
         gas_budget: u64,
         reserve_duration_secs: u64,
     ) -> anyhow::Result<(SuiAddress, ReservationID, Vec<ObjectRef>)> {
         let request = ReserveGasRequest {
+            sponsor_address: Some(sponsor_address),
             gas_budget,
             reserve_duration_secs,
         };
@@ -151,6 +154,29 @@ impl GasPoolRpcClient {
             .json::<ExecuteTxResponse>()
             .await?;
         response.effects.ok_or_else(|| {
+            anyhow::anyhow!(response
+                .error
+                .unwrap_or_else(|| "Unknown error".to_string()))
+        })
+    }
+
+    pub async fn support_address(&self) -> anyhow::Result<Vec<SuiAddress>> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            format!("Bearer {}", read_auth_env()).parse().unwrap(),
+        );
+
+        let response = self
+            .client
+            .get(format!("{}/v1/support_address", self.server_address))
+            .headers(headers)
+            .send()
+            .await?
+            .json::<SupportAddressResponse>()
+            .await?;
+
+        response.sponsor_addresses.ok_or_else(|| {
             anyhow::anyhow!(response
                 .error
                 .unwrap_or_else(|| "Unknown error".to_string()))

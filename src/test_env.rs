@@ -37,19 +37,19 @@ pub async fn start_sui_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<
         ])
         .build()
         .await;
-    (cluster, TestTxSigner::new(keypair.into()))
+    (cluster, TestTxSigner::new(vec![keypair.into()]))
 }
 
 pub async fn start_gas_station(
     init_gas_amounts: Vec<u64>,
     target_init_coin_balance: u64,
-) -> (TestCluster, GasPoolContainer) {
+) -> (Vec<SuiAddress>, TestCluster, GasPoolContainer) {
     debug!("Starting Sui cluster..");
     let (test_cluster, signer) = start_sui_cluster(init_gas_amounts).await;
     let fullnode_url = test_cluster.fullnode_handle.rpc_url.clone();
-    let sponsor_address = signer.get_address();
-    debug!("Starting storage. Sponsor address: {:?}", sponsor_address);
-    let storage = connect_storage_for_testing(sponsor_address).await;
+    let sponsor_addresses = signer.get_addresses();
+    debug!("Starting storage. Sponsor address: {:?}", sponsor_addresses);
+    let storage = connect_storage_for_testing(sponsor_addresses.clone()).await;
     let sui_client = SuiClient::new(&fullnode_url, None).await;
     GasPoolInitializer::start(
         sui_client.clone(),
@@ -69,14 +69,20 @@ pub async fn start_gas_station(
         GasPoolCoreMetrics::new_for_testing(),
     )
     .await;
-    (test_cluster, station)
+    (sponsor_addresses, test_cluster, station)
 }
 
 pub async fn start_rpc_server_for_testing(
     init_gas_amounts: Vec<u64>,
     target_init_balance: u64,
-) -> (TestCluster, GasPoolContainer, GasPoolServer) {
-    let (test_cluster, container) = start_gas_station(init_gas_amounts, target_init_balance).await;
+) -> (
+    Vec<SuiAddress>,
+    TestCluster,
+    GasPoolContainer,
+    GasPoolServer,
+) {
+    let (sponsor_addresses, test_cluster, container) =
+        start_gas_station(init_gas_amounts, target_init_balance).await;
     let localhost = localhost_for_testing();
     std::env::set_var(AUTH_ENV_NAME, "some secret");
     let server = GasPoolServer::new(
@@ -86,7 +92,7 @@ pub async fn start_rpc_server_for_testing(
         GasPoolRpcMetrics::new_for_testing(),
     )
     .await;
-    (test_cluster, container, server)
+    (sponsor_addresses, test_cluster, container, server)
 }
 
 pub async fn create_test_transaction(

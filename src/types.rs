@@ -6,16 +6,18 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use sui_json_rpc_types::SuiObjectRef;
-use sui_types::base_types::{ObjectID, ObjectRef};
+use sui_types::base_types::{ObjectID, ObjectRef, SuiAddress};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GasCoin {
+    pub owner: SuiAddress,
     pub object_ref: ObjectRef,
     pub balance: u64,
 }
 
 #[derive(Debug, JsonSchema, Serialize, Deserialize)]
 pub struct SuiGasCoin {
+    pub owner: SuiAddress,
     pub object_ref: SuiObjectRef,
     pub balance: u64,
 }
@@ -23,6 +25,7 @@ pub struct SuiGasCoin {
 impl From<GasCoin> for SuiGasCoin {
     fn from(gas_coin: GasCoin) -> Self {
         Self {
+            owner: gas_coin.owner,
             object_ref: gas_coin.object_ref.into(),
             balance: gas_coin.balance,
         }
@@ -32,6 +35,7 @@ impl From<GasCoin> for SuiGasCoin {
 impl From<SuiGasCoin> for GasCoin {
     fn from(gas_coin: SuiGasCoin) -> Self {
         Self {
+            owner: gas_coin.owner,
             object_ref: gas_coin.object_ref.to_object_ref(),
             balance: gas_coin.balance,
         }
