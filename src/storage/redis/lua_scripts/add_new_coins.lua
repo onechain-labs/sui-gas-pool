@@ -21,10 +21,12 @@ for sponsor_address, decoded_new_coins in pairs(new_coins) do
     local count = #decoded_new_coins
 
     local total_balance = 0
-    for _, coin in ipairs(decoded_new_coins) do
+    for i = 1, count, 1 do
+        local coin = decoded_new_coins[i]
         local idx1, _ = string.find(coin, ',', 1)
         local balance = string.sub(coin, 1, idx1 - 1)
         total_balance = total_balance + tonumber(balance)
+
         redis.call('RPUSH', t_available_gas_coins, coin)
     end
 
@@ -46,8 +48,8 @@ for sponsor_address, decoded_new_coins in pairs(new_coins) do
 
     table.insert(results, {
         sponsor_address,
-        tonumber(new_total_balance),
-        tonumber(new_coin_count)
+        tonumber(new_total_balance,10),
+        tonumber(new_coin_count,10)
     })
 end
 

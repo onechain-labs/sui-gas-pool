@@ -36,8 +36,8 @@ for _, sponsor_address in ipairs(sponsor_addresses) do
 
     table.insert(results, {
         sponsor_address,
-        tonumber(coin_count),
-        tonumber(total_balance)
+        tonumber(coin_count, 10),
+        tonumber(total_balance, 10)
     })
 
 end

@@ -157,11 +157,11 @@ impl Storage for RedisStorage {
             self.metrics
                 .gas_pool_available_gas_coin_count
                 .with_label_values(&[&sponsor])
-                .set(new_coin_count);
+                .set(new_coin_count as i64);
             self.metrics
                 .gas_pool_available_gas_total_balance
                 .with_label_values(&[&sponsor])
-                .set(new_total_balance);
+                .set(new_total_balance as i64);
             self.metrics.num_successful_add_new_coins_requests.inc();
         }
         Ok(())

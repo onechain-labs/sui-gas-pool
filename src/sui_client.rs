@@ -109,7 +109,7 @@ impl SuiClient {
                             .read_api()
                             .multi_get_object_with_options(
                                 chunk.clone(),
-                                SuiObjectDataOptions::default().with_bcs(),
+                                SuiObjectDataOptions::default().with_bcs().with_owner(),
                             )
                             .await
                             .map_err(anyhow::Error::from)?;
