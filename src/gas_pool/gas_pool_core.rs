@@ -14,7 +14,7 @@ use sui_json_rpc_types::{
     SuiTransactionBlockEffects, SuiTransactionBlockEffectsAPI, SuiTransactionBlockEvents,
 };
 use sui_types::base_types::{ObjectID, ObjectRef, SuiAddress};
-use sui_types::gas_coin::MIST_PER_HC;
+use sui_types::gas_coin::MIST_PER_OCT;
 use sui_types::programmable_transaction_builder::ProgrammableTransactionBuilder;
 use sui_types::quorum_driver_types::ExecuteTransactionRequestType;
 use sui_types::signature::GenericSignature;
@@ -291,7 +291,7 @@ impl GasPool {
 
     /// Performs an end-to-end flow of reserving gas, signing a transaction, and releasing the gas coins.
     pub async fn debug_check_health(&self) -> anyhow::Result<()> {
-        let gas_budget = MIST_PER_HC / 10;
+        let gas_budget = MIST_PER_OCT / 10;
         let sponsor = self.signer.get_addresses()[0];
         let (_address, _reservation_id, gas_coins) = self
             .reserve_gas(Some(sponsor), gas_budget, Duration::from_secs(3))

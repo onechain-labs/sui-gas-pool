@@ -15,7 +15,7 @@ use sui_config::local_ip_utils::{get_available_port, localhost_for_testing};
 use sui_swarm_config::genesis_config::AccountConfig;
 use sui_types::base_types::{ObjectRef, SuiAddress};
 use sui_types::crypto::get_account_key_pair;
-use sui_types::gas_coin::MIST_PER_HC;
+use sui_types::gas_coin::MIST_PER_OCT;
 use sui_types::signature::GenericSignature;
 use sui_types::transaction::{TransactionData, TransactionDataAPI};
 use test_cluster::{TestCluster, TestClusterBuilder};
@@ -32,7 +32,7 @@ pub async fn start_sui_cluster(init_gas_amounts: Vec<u64>) -> (TestCluster, Arc<
             // Besides sponsor, also initialize another account with 1000 SUI.
             AccountConfig {
                 address: None,
-                gas_amounts: vec![1000 * MIST_PER_HC],
+                gas_amounts: vec![1000 * MIST_PER_OCT],
             },
         ])
         .build()
